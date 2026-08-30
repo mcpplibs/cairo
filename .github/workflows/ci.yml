@@ -86,9 +86,19 @@ jobs:
           curl -fsSL -o /tmp/u.tar.gz \
             https://gitlab.freedesktop.org/cairo/cairo/-/archive/1.18.2/cairo-1.18.2.tar.gz
           mkdir -p /tmp/u && tar xzf /tmp/u.tar.gz -C /tmp/u --strip-components=1
-          if ! diff -r -q /tmp/u upstream >/dev/null 2>&1; then
+          # `test/` (61 MB of reference images) and `perf/` are removed from
+          # this tree — see upstream/README.mcpp-trimmed.md. Neither is
+          # compiled, and keeping them made the published archive 47 MB for
+          # 6 MB of source.
+          #
+          # Excluded from the comparison rather than ignored: every file the
+          # build can reach is still diffed, so this step still catches the
+          # thing it caught once already — upstream's own .gitignore files
+          # silently dropping five files that ARE in the release.
+          rm -rf /tmp/u/test /tmp/u/perf
+          if ! diff -r -q -x 'README.mcpp-trimmed.md' /tmp/u upstream >/dev/null 2>&1; then
             echo "::error::upstream/ differs from cairo 1.18.2"
-            diff -r -q /tmp/u upstream | head -20
+            diff -r -q -x 'README.mcpp-trimmed.md' /tmp/u upstream | head -20
             exit 1
           fi
-          echo "upstream/ is 1.18.2, unmodified"
+          echo "upstream/ is 1.18.2, unmodified (test/ and perf/ removed by design)"
