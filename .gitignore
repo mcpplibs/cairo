@@ -2,3 +2,16 @@ target/
 .mcpp/
 compile_commands.json
 mcpp.lock
+
+# upstream/ is never filtered.
+#
+# cairo ships FOURTEEN .gitignore files of its own — subprojects/, doc/, util/
+# and more — and they take effect when this fork commits the tree. Five files
+# that ARE in the release tarball were silently dropped by them
+# (subprojects/libpng.wrap, two .pc.in, two tutorial Makefiles), and the fork's
+# own "upstream/ is the release tarball, unmodified" check is what noticed.
+#
+# `!upstream/**` cannot re-include a path whose parent directory was excluded,
+# so this is belt and braces: it stops NEW exclusions, and the five already
+# committed with `git add -f`.
+!upstream/**
