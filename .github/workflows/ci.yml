@@ -33,6 +33,16 @@ jobs:
           "$HOME/.xlings/bin/xlings" install mcpp
           echo "$HOME/.xlings/subos/default/bin" >> "$GITHUB_PATH"
 
+      # REFRESH THE INDEX FIRST. The xlings install carries whatever index
+      # snapshot its image was built with, and this package depends on
+      # `compat.freetype` gaining `ftsynth.c` — a fix published the same day.
+      # Without this the runner builds against the older descriptor and fails
+      # with two undefined references to FT_GlyphSlot_Embolden/_Oblique, which
+      # reads like a bug in cairo. Measured; the same stale-snapshot trap the
+      # sandbox verification hit.
+      - name: Refresh the package index
+        run: mcpp index update
+
       # The test draws and reads the pixels back, which is the only thing that
       # would have caught the endianness bug: with WORDS_BIGENDIAN defined to 0
       # (cairo tests it with #ifdef, so 0 means big-endian) every path got
