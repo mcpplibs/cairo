@@ -1,0 +1,325 @@
+# freedesktop.cairo — 2D vector drawing.
+#
+# The layer a panel, a launcher or any widget toolkit draws through: paths,
+# strokes, fills, text runs, and surfaces to put them on. `pango` lays text out
+# and cairo renders it; a compositor that only composites does not need it, a
+# desktop SHELL does.
+#
+# ─────────────────────────────────────────────────────────────────────────
+# WHY THIS IS EASIER THAN ITS SIZE SUGGESTS
+#
+# 104k lines of C, and no code generation at all: upstream's meson emits exactly
+# two artifacts, `config.h` and `cairo-features.h`, and both are
+# `configure_file` — probe answers, not generated code. There is no python, no
+# gperf and no custom_target anywhere in the build.
+#
+# So the fork carries no `build.mcpp`: the two headers are hand-written in
+# `include/`, where a reader can see and argue with every value. Package
+# difficulty is decided by GENERATORS, not by line count — fontconfig is a
+# quarter the size and needed seven.
+#
+# ─────────────────────────────────────────────────────────────────────────
+# THE BACKENDS ARE FEATURES, AND THE DEFAULT SET IS WAYLAND-FIRST
+#
+# Upstream makes each backend a `get_option()`, which means a distribution
+# decides once for everyone. An index cannot do that: a Wayland compositor and
+# an X11 application want different cairos out of the same package.
+#
+# `xlib` and `xcb` are therefore OFF by default. Someone drawing a circle in a
+# Wayland program should not acquire libX11 to do it; someone who wants X11
+# writes `cairo = { features = ["xlib"] }` and says so in their manifest.
+#
+# SOURCES ARE LISTED FILE BY FILE, NEVER AS A GLOB. Feature source selection
+# matches literal entries, so a glob inside a feature block is not filtered by
+# the feature — `"*/src/cairo-xlib-*.c"` would compile the X11 backend into
+# every consumer whether they asked for it or not. The lists below are
+# upstream's own `cairo_feature_sources` dictionary (src/meson.build:127),
+# transcribed entry for entry.
+[package]
+namespace   = "freedesktop"
+name        = "cairo"
+version     = "1.18.2"
+standard    = "c++23"
+description = "cairo 1.18.2 — 2D vector drawing, with each backend as a feature and X11 off by default"
+license     = "LGPL-2.1-or-later OR MPL-1.1"
+repo        = "https://github.com/mcpplibs/cairo"
+
+[build]
+# The always-on core: paths, surfaces, the software rasterizer, the image and
+# recording surfaces. `cairo_sources` in upstream's src/meson.build.
+sources = [
+    "../../upstream/src/cairo-analysis-surface.c",
+    "../../upstream/src/cairo-arc.c",
+    "../../upstream/src/cairo-array.c",
+    "../../upstream/src/cairo-atomic.c",
+    "../../upstream/src/cairo-base64-stream.c",
+    "../../upstream/src/cairo-base85-stream.c",
+    "../../upstream/src/cairo-bentley-ottmann-rectangular.c",
+    "../../upstream/src/cairo-bentley-ottmann-rectilinear.c",
+    "../../upstream/src/cairo-bentley-ottmann.c",
+    "../../upstream/src/cairo-botor-scan-converter.c",
+    "../../upstream/src/cairo-boxes-intersect.c",
+    "../../upstream/src/cairo-boxes.c",
+    "../../upstream/src/cairo-cache.c",
+    "../../upstream/src/cairo-clip-boxes.c",
+    "../../upstream/src/cairo-clip-polygon.c",
+    "../../upstream/src/cairo-clip-region.c",
+    "../../upstream/src/cairo-clip-surface.c",
+    "../../upstream/src/cairo-clip-tor-scan-converter.c",
+    "../../upstream/src/cairo-clip.c",
+    "../../upstream/src/cairo-color.c",
+    "../../upstream/src/cairo-composite-rectangles.c",
+    "../../upstream/src/cairo-compositor.c",
+    "../../upstream/src/cairo-contour.c",
+    "../../upstream/src/cairo-damage.c",
+    "../../upstream/src/cairo-debug.c",
+    "../../upstream/src/cairo-default-context.c",
+    "../../upstream/src/cairo-device.c",
+    "../../upstream/src/cairo-error.c",
+    "../../upstream/src/cairo-fallback-compositor.c",
+    "../../upstream/src/cairo-fixed.c",
+    "../../upstream/src/cairo-font-face-twin-data.c",
+    "../../upstream/src/cairo-font-face-twin.c",
+    "../../upstream/src/cairo-font-face.c",
+    "../../upstream/src/cairo-font-options.c",
+    "../../upstream/src/cairo-freed-pool.c",
+    "../../upstream/src/cairo-freelist.c",
+    "../../upstream/src/cairo-gstate.c",
+    "../../upstream/src/cairo-hash.c",
+    "../../upstream/src/cairo-hull.c",
+    "../../upstream/src/cairo-image-compositor.c",
+    "../../upstream/src/cairo-image-info.c",
+    "../../upstream/src/cairo-image-source.c",
+    "../../upstream/src/cairo-image-surface.c",
+    "../../upstream/src/cairo-line.c",
+    "../../upstream/src/cairo-lzw.c",
+    "../../upstream/src/cairo-mask-compositor.c",
+    "../../upstream/src/cairo-matrix.c",
+    "../../upstream/src/cairo-mempool.c",
+    "../../upstream/src/cairo-mesh-pattern-rasterizer.c",
+    "../../upstream/src/cairo-misc.c",
+    "../../upstream/src/cairo-mono-scan-converter.c",
+    "../../upstream/src/cairo-mutex.c",
+    "../../upstream/src/cairo-no-compositor.c",
+    "../../upstream/src/cairo-observer.c",
+    "../../upstream/src/cairo-output-stream.c",
+    "../../upstream/src/cairo-paginated-surface.c",
+    "../../upstream/src/cairo-path-bounds.c",
+    "../../upstream/src/cairo-path-fill.c",
+    "../../upstream/src/cairo-path-fixed.c",
+    "../../upstream/src/cairo-path-in-fill.c",
+    "../../upstream/src/cairo-path-stroke-boxes.c",
+    "../../upstream/src/cairo-path-stroke-polygon.c",
+    "../../upstream/src/cairo-path-stroke-traps.c",
+    "../../upstream/src/cairo-path-stroke-tristrip.c",
+    "../../upstream/src/cairo-path-stroke.c",
+    "../../upstream/src/cairo-path.c",
+    "../../upstream/src/cairo-pattern.c",
+    "../../upstream/src/cairo-pen.c",
+    "../../upstream/src/cairo-polygon-intersect.c",
+    "../../upstream/src/cairo-polygon-reduce.c",
+    "../../upstream/src/cairo-polygon.c",
+    "../../upstream/src/cairo-raster-source-pattern.c",
+    "../../upstream/src/cairo-recording-surface.c",
+    "../../upstream/src/cairo-rectangle.c",
+    "../../upstream/src/cairo-rectangular-scan-converter.c",
+    "../../upstream/src/cairo-region.c",
+    "../../upstream/src/cairo-rtree.c",
+    "../../upstream/src/cairo-scaled-font.c",
+    "../../upstream/src/cairo-shape-mask-compositor.c",
+    "../../upstream/src/cairo-slope.c",
+    "../../upstream/src/cairo-spans-compositor.c",
+    "../../upstream/src/cairo-spans.c",
+    "../../upstream/src/cairo-spline.c",
+    "../../upstream/src/cairo-stroke-dash.c",
+    "../../upstream/src/cairo-stroke-style.c",
+    "../../upstream/src/cairo-surface-clipper.c",
+    "../../upstream/src/cairo-surface-fallback.c",
+    "../../upstream/src/cairo-surface-observer.c",
+    "../../upstream/src/cairo-surface-offset.c",
+    "../../upstream/src/cairo-surface-snapshot.c",
+    "../../upstream/src/cairo-surface-subsurface.c",
+    "../../upstream/src/cairo-surface-wrapper.c",
+    "../../upstream/src/cairo-surface.c",
+    "../../upstream/src/cairo-time.c",
+    "../../upstream/src/cairo-tor-scan-converter.c",
+    "../../upstream/src/cairo-tor22-scan-converter.c",
+    "../../upstream/src/cairo-toy-font-face.c",
+    "../../upstream/src/cairo-traps-compositor.c",
+    "../../upstream/src/cairo-traps.c",
+    "../../upstream/src/cairo-tristrip.c",
+    "../../upstream/src/cairo-unicode.c",
+    "../../upstream/src/cairo-user-font.c",
+    "../../upstream/src/cairo-version.c",
+    "../../upstream/src/cairo-wideint.c",
+    "../../upstream/src/cairo-cff-subset.c",
+    "../../upstream/src/cairo-scaled-font-subsets.c",
+    "../../upstream/src/cairo-truetype-subset.c",
+    "../../upstream/src/cairo-type1-fallback.c",
+    "../../upstream/src/cairo-type1-glyph-names.c",
+    "../../upstream/src/cairo-type1-subset.c",
+    "../../upstream/src/cairo-type3-glyph-surface.c",
+    "../../upstream/src/cairo-pdf-operators.c",
+    "../../upstream/src/cairo-pdf-shading.c",
+    "../../upstream/src/cairo-tag-attributes.c",
+    "../../upstream/src/cairo-tag-stack.c",
+    "../../upstream/src/cairo-deflate-stream.c",
+    "../../upstream/src/cairo.c",
+    "src/cairo.cppm",
+]
+
+include_dirs = [
+    "../../upstream/src",
+    "../../upstream/util",
+    "include",
+]
+
+cflags = [
+    "-DHAVE_CONFIG_H",
+    # Upstream passes this to every TU of the library (src/meson.build:245).
+    # It is not a niceness: cairo uses it to decide symbol visibility and which
+    # internal implementations get wired up. Without it the library still
+    # builds and links, `cairo_paint` still works — and `cairo_stroke` changes
+    # zero pixels with cairo_status reporting SUCCESS. Measured.
+    "-DCAIRO_COMPILATION",
+    "-D_GNU_SOURCE",
+    "-fPIC",
+]
+
+ldflags = ["-lm"]
+
+# pixman is the software rasterizer cairo draws through; it is not optional and
+# is not a feature.
+[dependencies]
+compat.pixman = "0.46.4"
+
+[lib]
+path = "src/cairo.cppm"
+
+[targets.cairo]
+kind = "lib"
+
+# ── features ─────────────────────────────────────────────────────────────
+[features]
+# The Wayland-first default set. `ft` and `fc` because a cairo that cannot draw
+# text is not useful on Linux; `png` because it is what every screenshot and
+# thumbnail path takes and it costs one source file.
+#
+# `xlib` and `xcb` are NOT here, deliberately — that is the whole point of the
+# split. Someone drawing a circle in a Wayland program should not acquire
+# libX11 to do it.
+#
+# Turn the defaults off with `default-features = false` and name what you want.
+default = ["ft", "fc", "png"]
+
+# FreeType glyph rendering. On by default: it is the only font backend that
+# works outside macOS and Windows, so a Linux consumer that turned it off would
+# have a cairo that cannot draw text.
+[features.ft]
+defines  = ["CAIRO_HAS_FT_FONT"]
+sources  = [
+    "../../upstream/src/cairo-ft-font.c",
+    "../../upstream/src/cairo-colr-glyph-render.c",
+    "../../upstream/src/cairo-svg-glyph-render.c",
+]
+# Font DISCOVERY, as opposed to rendering: `cairo_ft_font_face_create_for_pattern`
+# takes an FcPattern. Separate from `ft` because a program that already has a
+# font file needs the renderer and not the matcher.
+[features.fc]
+defines  = ["CAIRO_HAS_FC_FONT"]
+# PNG surfaces. Small, and the path every screenshot and thumbnail takes.
+[features.png]
+defines  = ["CAIRO_HAS_PNG_FUNCTIONS"]
+sources  = [
+    "../../upstream/src/cairo-png.c",
+]
+# Vector output. Off by default — a program that draws on screen never touches
+# them, and each pulls its own compression path in.
+[features.pdf]
+defines  = ["CAIRO_HAS_PDF_SURFACE"]
+sources  = [
+    "../../upstream/src/cairo-pdf-surface.c",
+    "../../upstream/src/cairo-pdf-interchange.c",
+]
+[features.ps]
+defines  = ["CAIRO_HAS_PS_SURFACE"]
+sources  = [
+    "../../upstream/src/cairo-ps-surface.c",
+]
+[features.svg]
+defines  = ["CAIRO_HAS_SVG_SURFACE"]
+sources  = [
+    "../../upstream/src/cairo-svg-surface.c",
+]
+
+# Debugging surfaces. `script` records a drawing as a replayable trace and `tee`
+# fans one drawing out to several surfaces; both are how a rendering bug gets
+# reported. No external dependency, so they cost nothing but code size.
+[features.script]
+defines  = ["CAIRO_HAS_SCRIPT_SURFACE"]
+sources  = [
+    "../../upstream/src/cairo-script-surface.c",
+]
+
+[features.tee]
+defines  = ["CAIRO_HAS_TEE_SURFACE"]
+sources  = [
+    "../../upstream/src/cairo-tee-surface.c",
+]
+
+# ── X11, OFF BY DEFAULT ───────────────────────────────────────────────────
+#
+# The whole point of the feature split. Ten source files and libX11/libXext
+# each, for a backend a Wayland program never calls.
+
+[features.xlib]
+defines  = ["CAIRO_HAS_XLIB_SURFACE", "CAIRO_HAS_XLIB_XRENDER_SURFACE"]
+sources  = [
+    "../../upstream/src/cairo-xlib-display.c",
+    "../../upstream/src/cairo-xlib-core-compositor.c",
+    "../../upstream/src/cairo-xlib-fallback-compositor.c",
+    "../../upstream/src/cairo-xlib-render-compositor.c",
+    "../../upstream/src/cairo-xlib-screen.c",
+    "../../upstream/src/cairo-xlib-source.c",
+    "../../upstream/src/cairo-xlib-surface.c",
+    "../../upstream/src/cairo-xlib-surface-shm.c",
+    "../../upstream/src/cairo-xlib-visual.c",
+    "../../upstream/src/cairo-xlib-xcb-surface.c",
+]
+[features.xcb]
+defines  = ["CAIRO_HAS_XCB_SURFACE", "CAIRO_HAS_XCB_SHM_FUNCTIONS"]
+sources  = [
+    "../../upstream/src/cairo-xcb-connection.c",
+    "../../upstream/src/cairo-xcb-connection-core.c",
+    "../../upstream/src/cairo-xcb-connection-render.c",
+    "../../upstream/src/cairo-xcb-connection-shm.c",
+    "../../upstream/src/cairo-xcb-screen.c",
+    "../../upstream/src/cairo-xcb-shm.c",
+    "../../upstream/src/cairo-xcb-surface.c",
+    "../../upstream/src/cairo-xcb-surface-core.c",
+    "../../upstream/src/cairo-xcb-surface-render.c",
+    "../../upstream/src/cairo-xcb-resources.c",
+]
+
+[feature-deps.ft]
+compat.freetype = "2.13.3"
+
+[feature-deps.fc]
+freedesktop.fontconfig = "2.15.0"
+
+[feature-deps.png]
+compat.libpng = "1.6.43"
+compat.zlib = "1.3.2"
+
+[feature-deps.pdf]
+compat.zlib = "1.3.2"
+
+[feature-deps.ps]
+compat.zlib = "1.3.2"
+
+[feature-deps.xlib]
+compat.x11 = "1.8.13"
+compat.xext = "1.3.7"
+
+[feature-deps.xcb]
+compat.xcb = "1.17.0"

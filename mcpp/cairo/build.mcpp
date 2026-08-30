@@ -1,0 +1,184 @@
+// Generate the C++23 module wrapper.
+//
+// cairo needs no build.mcpp for its BUILD — there is no code generation in it
+// at all, which is what makes a 104k-line package easier than a 26k-line one.
+// This exists only for the module, and for one reason that a hand-written
+// wrapper could not handle cleanly:
+//
+//   THE EXPORT SET DEPENDS ON WHICH FEATURES ARE ON.
+//
+// `cairo_ft_font_face_create_for_ft_face` exists only with the `ft` feature,
+// `cairo_xlib_surface_create` only with `xlib`. A `using ::name;` for a name
+// that was not declared is a hard error, so the wrapper cannot simply list
+// everything. Each feature's names are therefore emitted inside
+// `#if CAIRO_HAS_<X>`, and the macro comes from the feature's own `defines` —
+// so the module and the manifest cannot disagree about what is in the build.
+#include <algorithm>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <regex>
+#include <set>
+#include <sstream>
+#include <string>
+#include <vector>
+
+import mcpp;
+
+namespace fs = std::filesystem;
+
+static std::vector<std::string> read_lines(const fs::path &p)
+{
+    std::vector<std::string> v;
+    std::ifstream f(p);
+    std::string l;
+    while (std::getline(f, l)) v.push_back(l);
+    return v;
+}
+
+// cairo's public headers declare functions as `cairo_public <type>` on one line
+// and `cairo_foo (` on the next, which is what makes a line-anchored match on
+// the NAME reliable.
+//
+// TWO THINGS THE NAIVE VERSION GOT WRONG, both found by the compiler:
+//
+//  1. `/* XXX: NYI  cairo_public void cairo_arc_to (...) */` — declarations
+//     that exist only inside a COMMENT. Exporting one is
+//     `error: 'cairo_arc_to' has not been declared in '::'`.
+//
+//  2. `#if CAIRO_HAS_PNG_FUNCTIONS` blocks INSIDE cairo.h. Those names belong
+//     to a feature even though they are not in a feature header, so they have
+//     to carry the same guard into the module.
+//
+// So the scan tracks block comments and `#if CAIRO_HAS_*` nesting, and returns
+// each name with the guard it was found under ("" for unguarded).
+struct Found { std::string name; std::string guard; bool is_type; };
+
+static std::vector<Found> scan(const fs::path &h)
+{
+    static const std::regex fn(R"(^(cairo_[a-z0-9_]+)\s*\()");
+    static const std::regex ty(R"(^typedef\s+.*?\b(cairo_[a-z0-9_]+_t)\s*;)");
+    static const std::regex st(R"(^\}\s*(cairo_[a-z0-9_]+_t)\s*;)");
+    static const std::regex ifg(R"(^#\s*if(?:def)?\s+(?:defined\s*\(\s*)?(CAIRO_HAS_[A-Z_0-9]+))");
+
+    std::vector<Found> out;
+    std::vector<std::string> guards;   // innermost CAIRO_HAS_* stack
+    int depth = 0;                     // #if nesting inside a guard
+    bool in_comment = false;
+
+    for (auto l : read_lines(h)) {
+        // Block comments first: a declaration inside one is not a declaration.
+        if (in_comment) {
+            const auto e = l.find("*/");
+            if (e == std::string::npos) continue;
+            l = l.substr(e + 2);
+            in_comment = false;
+        }
+        for (;;) {
+            const auto b = l.find("/*");
+            if (b == std::string::npos) break;
+            const auto e = l.find("*/", b + 2);
+            if (e == std::string::npos) { l = l.substr(0, b); in_comment = true; break; }
+            l = l.substr(0, b) + l.substr(e + 2);
+        }
+
+        std::smatch m;
+        if (std::regex_search(l, m, ifg)) { guards.push_back(m[1]); depth = 0; continue; }
+        if (!guards.empty() && l.rfind("#if", 0) == 0) { ++depth; continue; }
+        if (l.rfind("#endif", 0) == 0) {
+            if (!guards.empty()) { if (depth > 0) --depth; else guards.pop_back(); }
+            continue;
+        }
+
+        const std::string g = guards.empty() ? std::string() : guards.back();
+        if (std::regex_search(l, m, fn))      out.push_back({ m[1], g, false });
+        else if (std::regex_search(l, m, ty)) out.push_back({ m[1], g, true });
+        else if (std::regex_search(l, m, st)) out.push_back({ m[1], g, true });
+    }
+    return out;
+}
+
+int main()
+{
+    const fs::path root = fs::path(mcpp::manifest_dir());
+    const fs::path src  = root / ".." / ".." / "upstream" / "src";
+
+    // guard -> (types, functions), "" being the unguarded core.
+    std::map<std::string, std::pair<std::set<std::string>, std::set<std::string>>> by_guard;
+    std::set<std::string> seen;
+
+    auto take = [&](const fs::path &h) {
+        std::error_code e;
+        if (!fs::exists(h, e)) return;
+        for (const auto &f : scan(h)) {
+            if (!seen.insert(f.name).second) continue;   // first wins
+            auto &slot = by_guard[f.guard];
+            (f.is_type ? slot.first : slot.second).insert(f.name);
+        }
+        mcpp::rerun_if_changed(h.string().c_str());
+    };
+
+    take(src / "cairo.h");
+
+    // Each feature header, and the macro that guards its contents. A name found
+    // here that cairo.h already exported is skipped by `seen`.
+    struct Feat { const char *macro; const char *header; };
+    const Feat feats[] = {
+        { "CAIRO_HAS_FT_FONT",        "cairo-ft.h" },
+        { "CAIRO_HAS_PDF_SURFACE",    "cairo-pdf.h" },
+        { "CAIRO_HAS_PS_SURFACE",     "cairo-ps.h" },
+        { "CAIRO_HAS_SVG_SURFACE",    "cairo-svg.h" },
+        { "CAIRO_HAS_SCRIPT_SURFACE", "cairo-script.h" },
+        { "CAIRO_HAS_TEE_SURFACE",    "cairo-tee.h" },
+        { "CAIRO_HAS_XLIB_SURFACE",   "cairo-xlib.h" },
+        { "CAIRO_HAS_XCB_SURFACE",    "cairo-xcb.h" },
+    };
+    for (const auto &f : feats) {
+        std::error_code e;
+        const fs::path h = src / f.header;
+        if (!fs::exists(h, e)) continue;
+        for (const auto &x : scan(h)) {
+            if (!seen.insert(x.name).second) continue;
+            // A name inside a feature header carries that header's macro unless
+            // the header guarded it more narrowly itself.
+            auto &slot = by_guard[x.guard.empty() ? std::string(f.macro) : x.guard];
+            (x.is_type ? slot.first : slot.second).insert(x.name);
+        }
+        mcpp::rerun_if_changed(h.string().c_str());
+    }
+
+    std::error_code ec;
+    fs::create_directories(root / "src", ec);
+    std::ofstream m(root / "src" / "cairo.cppm");
+
+    m << "// freedesktop.cairo, as a C++23 module.\n//\n"
+      << "// GENERATED by build.mcpp from upstream/src/cairo*.h. Do not edit:\n"
+      << "// a version bump regenerates it, so a name upstream added or removed\n"
+      << "// cannot be silently missed.\n//\n"
+      << "// Feature-specific names sit behind the same CAIRO_HAS_* macros the\n"
+      << "// features define, so this file and the manifest cannot disagree\n"
+      << "// about what is in the build.\n"
+      << "module;\n\n#include <cairo.h>\n";
+    for (const auto &f : feats)
+        m << "#if " << f.macro << "\n#include <" << f.header << ">\n#endif\n";
+    m << "\nexport module freedesktop.cairo;\n\nexport {\n";
+
+    std::size_t total = 0;
+    for (const auto &[guard, sets] : by_guard) {
+        const auto &[types, funcs] = sets;
+        if (types.empty() && funcs.empty()) continue;
+        if (guard.empty()) m << "\n// -- core --\n";
+        else               m << "\n#if " << guard << "\n";
+        for (const auto &t : types) m << "using ::" << t << ";\n";
+        for (const auto &f : funcs) m << "using ::" << f << ";\n";
+        if (!guard.empty()) m << "#endif\n";
+        total += types.size() + funcs.size();
+    }
+    m << "\n} // export\n";
+    m.close();
+    std::fprintf(stderr, "module: %zu names across %zu guards\n", total, by_guard.size());
+
+    mcpp::rerun_if_changed("build.mcpp");
+    return 0;
+}

@@ -1,0 +1,84 @@
+name: ci
+
+# cairo has no generated code, so there is no regenerate-and-diff step here.
+# What this checks instead is the two things that failed SILENTLY while the
+# package was being written — both compiled, linked and reported success.
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Two PATH entries: `xlings` lands in ~/.xlings/bin, `mcpp` is installed
+      # INTO THE SUBOS. Without the second, the next step dies with a bare
+      # `mcpp: command not found`.
+      - name: Install xlings + mcpp
+        env:
+          XLINGS_NON_INTERACTIVE: "1"
+          XLINGS_VERSION: "2026.8.27.5"
+        run: |
+          curl -fsSL https://d2learn.org/xlings-install.sh | bash
+          echo "$HOME/.xlings/bin" >> "$GITHUB_PATH"
+          "$HOME/.xlings/bin/xlings" --version
+          "$HOME/.xlings/bin/xlings" install mcpp
+          echo "$HOME/.xlings/subos/default/bin" >> "$GITHUB_PATH"
+
+      # The test draws and reads the pixels back, which is the only thing that
+      # would have caught the endianness bug: with WORDS_BIGENDIAN defined to 0
+      # (cairo tests it with #ifdef, so 0 means big-endian) every path got
+      # garbage coordinates while cairo_status reported success.
+      - name: build and test — draws, and checks the pixels
+        run: |
+          cd mcpp/cairo
+          mcpp test
+
+      # The same under clang. mcpp-index's llvm leg has caught two bugs in this
+      # family already — a `static inline` forced into a TU, and a missing
+      # <sstream> — both invisible to gcc. Catching them here costs one job
+      # instead of one CI round-trip on the index PR.
+      - name: build and test under clang
+        run: |
+          cd mcpp/cairo
+          mcpp toolchain install llvm
+          mcpp toolchain default llvm
+          rm -rf target
+          mcpp test
+
+      - name: the X11 backends really are off
+        run: |
+          # The point of the feature split, checked on the artifact rather than
+          # on the manifest: a Wayland consumer must not acquire libX11 by
+          # depending on cairo.
+          objs=$(find mcpp/cairo/target -name '*.o' | head -400)
+          if strings $objs 2>/dev/null | grep -qE 'XOpenDisplay|xcb_connect'; then
+            echo "::error::an X11 symbol reached the default build"
+            exit 1
+          fi
+          if find mcpp/cairo/target -name 'cairo-xlib-*.o' -o -name 'cairo-xcb-*.o' | grep -q .; then
+            echo "::error::an X11 backend TU was compiled without the feature"
+            find mcpp/cairo/target -name 'cairo-x*-*.o'
+            exit 1
+          fi
+          echo "no X11 backend objects, no X11 symbols"
+
+      - name: upstream/ is the release tarball, unmodified
+        run: |
+          curl -fsSL -o /tmp/u.tar.gz \
+            https://gitlab.freedesktop.org/cairo/cairo/-/archive/1.18.2/cairo-1.18.2.tar.gz
+          mkdir -p /tmp/u && tar xzf /tmp/u.tar.gz -C /tmp/u --strip-components=1
+          if ! diff -r -q /tmp/u upstream >/dev/null 2>&1; then
+            echo "::error::upstream/ differs from cairo 1.18.2"
+            diff -r -q /tmp/u upstream | head -20
+            exit 1
+          fi
+          echo "upstream/ is 1.18.2, unmodified"
