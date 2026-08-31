@@ -57,8 +57,35 @@ different identifier. Claiming it typedefs from a type that does not exist.
 ## Using it
 
 ```cpp
-import freedesktop.cairo;
+import cairo;
 ```
 
 470 names, grouped behind the same `CAIRO_HAS_*` macros the features define — so
 the module and the manifest cannot disagree about what is in the build.
+
+## ⚠️ The module is named for the project, not for its host
+
+`import cairo;` — **not** `freedesktop.cairo`. cairo is its own project;
+freedesktop.org hosts the git and does not own the interface. The index
+namespace (`freedesktop.cairo`) is a *shelf label* and never enters the module
+name — the same reason `freedesktop.egl` exports `khronos.egl`.
+
+This changed in this release. A consumer on the old name gets a compile error
+naming the module, which is the right place to find out.
+
+## ⭐ The module exported 470 names and was missing the two that mattered
+
+Found from *outside*, by `gnome.pangocairo` — which cannot mix the two routes
+and therefore had to ask the module for `cairo_t` and got nothing:
+
+| | |
+|---|---|
+| `cairo_t` | `typedef struct _cairo cairo_t;`. The typedef regex required at least one character between `cairo_` and `_t`, so the single most-used type in the library was the one name it could not match. |
+| 192 enumerators | every `CAIRO_FORMAT_*`, `CAIRO_STATUS_*`, `CAIRO_OPERATOR_*`. The scan never looked inside a `typedef enum` body. |
+
+**Nobody noticed because the only test that imported the module also wrote
+`#include <cairo.h>`,** so the header supplied whatever the module lacked. An
+import that is never asked to stand on its own is not tested, it is decorated.
+
+The tests are now two files — `tests/cairo.cpp` includes and does not import,
+`tests/module.cpp` imports and includes nothing — and the export count is 697.
